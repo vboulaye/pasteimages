@@ -16,6 +16,7 @@ import com.intellij.openapi.vcs.AbstractVcs;
 import com.intellij.openapi.vcs.ProjectLevelVcsManager;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
+import org.apache.commons.lang.StringUtils;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
@@ -33,6 +34,13 @@ public class PasteImageFromClipboard extends AnAction {
 
 
     private static final String DOC_BASE_NAME = "{document_name}";
+    public static final String PI__IMAGE_NAME = "PI__IMAGE_NAME";
+    public static final String PI__WHITE_AS_TRANSPARENT = "PI__WHITE_AS_TRANSPARENT";
+    public static final String PI__ROUND_CORNERS = "PI__ROUND_CORNERS";
+    public static final String PI__SCALING_FACTOR = "PI__SCALING_FACTOR";
+    public static final String PI__INLINE_IMAGE = "PI__INLINE_IMAGE";
+    public static final String PI__LAST_DIR_PATTERN = "PI__LAST_DIR_PATTERN";
+    public static final String PI_DIR_PATTERN_FOR = "PI__DIR_PATTERN_FOR_";
 
 
     @Override
@@ -78,7 +86,12 @@ public class PasteImageFromClipboard extends AnAction {
 
         if (insertSettingsPanel == null) return;
 
-        String imageName = insertSettingsPanel.getNameInput().getText();
+        String imageNameValue = insertSettingsPanel.getNameInput().getText();
+        String imageName = imageNameValue;
+        if (StringUtils.isBlank(imageName)) {
+            imageName = UUID.randomUUID().toString().substring(0, 8);
+        }
+
         boolean whiteAsTransparent = insertSettingsPanel.getWhiteCheckbox().isSelected();
         boolean roundCorners = insertSettingsPanel.getRoundCheckbox().isSelected();
         double scalingFactor = ((Integer) insertSettingsPanel.getScaleSpinner().getValue()) * 0.01;
@@ -106,16 +119,26 @@ public class PasteImageFromClipboard extends AnAction {
         String dirPattern = insertSettingsPanel.getDirectoryField().getText();
 
 
-        File imageDir = new File(curDocument.getParent(), dirPattern.replace(DOC_BASE_NAME, mdBaseName));
+        boolean inlineImage = insertSettingsPanel.getInlineImageCheckbox().isSelected();
+        if (inlineImage) {
+            String inlineImageBase64 = convertToBase64(bufferedImage, "png");
+            insertImageElement(ed, imageName, inlineImageBase64);
+
+        } else {
+
+            File imageDir = new File(curDocument.getParent(), dirPattern.replace(DOC_BASE_NAME, mdBaseName));
 
 
-        if (!imageDir.exists() || !imageDir.isDirectory()) imageDir.mkdirs();
+            if (!imageDir.exists() || !imageDir.isDirectory()) imageDir.mkdirs();
 
 
-        File imageFile = new File(imageDir, imageName + ".png");
+            File imageFile = new File(imageDir, imageName + ".png");
 
-        // todo should we silently override the image if it is already present?
-        save(bufferedImage, imageFile, "png");
+            // todo should we silently override the image if it is already present?
+            save(bufferedImage, imageFile, "png");
+
+            // inject image element current markdown document
+            insertImageElement(ed, imageName, curDocument.getParentFile().toPath().relativize(imageFile.toPath()).toFile());
 
 //        PropertiesComponent.getInstance()
 
@@ -134,31 +157,45 @@ public class PasteImageFromClipboard extends AnAction {
 //            });
 //        }
 
-        // inject image element current markdown document
-        insertImageElement(ed, curDocument.getParentFile().toPath().relativize(imageFile.toPath()).toFile());
+            // inject image element current markdown document
+            insertImageElement(ed, imageName, curDocument.getParentFile().toPath().relativize(imageFile.toPath()).toFile());
 
-        // https://intellij-support.jetbrains.com/hc/en-us/community/posts/206144389-Create-virtual-file-from-file-path
-        VirtualFile fileByPath = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(imageFile);
-        assert fileByPath != null;
+            // https://intellij-support.jetbrains.com/hc/en-us/community/posts/206144389-Create-virtual-file-from-file-path
+            VirtualFile fileByPath = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(imageFile);
+            assert fileByPath != null;
 
-        AbstractVcs usedVcs = ProjectLevelVcsManager.getInstance(ed.getProject()).getVcsFor(fileByPath);
-        if (usedVcs != null && usedVcs.getCheckinEnvironment() != null) {
-            usedVcs.getCheckinEnvironment().scheduleUnversionedFilesForAddition(Collections.singletonList(fileByPath));
+            AbstractVcs usedVcs = ProjectLevelVcsManager.getInstance(ed.getProject()).getVcsFor(fileByPath);
+            if (usedVcs != null && usedVcs.getCheckinEnvironment() != null) {
+                usedVcs.getCheckinEnvironment().scheduleUnversionedFilesForAddition(Collections.singletonList(fileByPath));
+            }
+
         }
 
+        // store parameters
+        PropertiesComponent.getInstance().setValue(PI__WHITE_AS_TRANSPARENT, insertSettingsPanel.getWhiteCheckbox().isSelected());
+        PropertiesComponent.getInstance().setValue(PI__ROUND_CORNERS, insertSettingsPanel.getRoundCheckbox().isSelected());
+        PropertiesComponent.getInstance().setValue(PI__SCALING_FACTOR, (Integer) insertSettingsPanel.getScaleSpinner().getValue(), 100);
+        PropertiesComponent.getInstance().setValue(PI__INLINE_IMAGE, insertSettingsPanel.getInlineImageCheckbox().isSelected());
+        PropertiesComponent.getInstance().setValue(PI__IMAGE_NAME, imageNameValue);
 
         // update directory pattern preferences for file and globally
-        PropertiesComponent.getInstance().setValue("PI__LAST_DIR_PATTERN", dirPattern);
-        PropertiesComponent.getInstance().setValue("PI__DIR_PATTERN_FOR_" + currentFile.getPath(), dirPattern);
+        PropertiesComponent.getInstance().setValue(PI__LAST_DIR_PATTERN, dirPattern);
+        PropertiesComponent.getInstance().setValue(PI_DIR_PATTERN_FOR + currentFile.getPath(), dirPattern);
     }
 
 
-    private void insertImageElement(final @NotNull Editor editor, File imageFile) {
-        Runnable r = () -> EditorModificationUtil.insertStringAtCaret(editor, "![](" + imageFile.toString() + ")");
+    private void insertImageElement(final @NotNull Editor editor, String imageName, File imageFile) {
+        Runnable r = () -> EditorModificationUtil.insertStringAtCaret(editor, "![" + imageName + "](" + imageFile.toString() + ")");
 
         WriteCommandAction.runWriteCommandAction(editor.getProject(), r);
     }
 
+    private void insertImageElement(final @NotNull Editor editor, @NotNull String imageName, @NotNull String imageContentsBase64) {
+
+        Runnable r = () -> EditorModificationUtil.insertStringAtCaret(editor, "![" + imageName + "](data:image/*;base64," + imageContentsBase64 + ")");
+
+        WriteCommandAction.runWriteCommandAction(editor.getProject(), r);
+    }
 
     // for more examples see
 //    http://www.programcreek.com/java-api-examples/index.php?api=com.intellij.openapi.ui.DialogWrapper
@@ -170,7 +207,7 @@ public class PasteImageFromClipboard extends AnAction {
         ChangeListener listener = new ChangeListener() {
             @Override
             public void stateChanged(ChangeEvent e) {
-                double scalingFactor = (Integer) contentPanel.getScaleSpinner().getValue() * 0.1;
+                double scalingFactor = (Integer) contentPanel.getScaleSpinner().getValue() * 0.01;
 
                 JLabel targetSizeLabel = contentPanel.getTargetSizeLabel();
 
@@ -192,15 +229,35 @@ public class PasteImageFromClipboard extends AnAction {
         // restore directory pattern preferences for file and globally
 
         PropertiesComponent propComp = PropertiesComponent.getInstance();
-        String dirPattern = propComp.getValue("PI__DIR_PATTERN_FOR_" + curDocument.getPath());
-        if (dirPattern == null) dirPattern = propComp.getValue("PI__LAST_DIR_PATTERN");
+        String dirPattern = propComp.getValue(PI_DIR_PATTERN_FOR + curDocument.getPath());
+        if (dirPattern == null) dirPattern = propComp.getValue(PI__LAST_DIR_PATTERN);
         if (dirPattern == null) dirPattern = "." + DOC_BASE_NAME + "_images";
-
 
         contentPanel.getDirectoryField().setText(dirPattern);
 
+        String imageName = propComp.getValue(PI__IMAGE_NAME);
+        contentPanel.getNameInput().setText(imageName);
 
-        contentPanel.getNameInput().setText(UUID.randomUUID().toString().substring(0, 8));
+        boolean whiteAsTransparentSaved = propComp.getBoolean(PI__WHITE_AS_TRANSPARENT);
+        contentPanel.getWhiteCheckbox().setSelected(whiteAsTransparentSaved);
+
+        boolean roundCornersSaved = propComp.getBoolean(PI__ROUND_CORNERS);
+        contentPanel.getRoundCheckbox().setSelected(roundCornersSaved);
+
+        int scalingFactorSaved = propComp.getInt(PI__SCALING_FACTOR, 100);
+        contentPanel.getScaleSpinner().setValue(scalingFactorSaved);
+
+        boolean inlineImageSaved = propComp.getBoolean(PI__INLINE_IMAGE);
+        contentPanel.getInlineImageCheckbox().addChangeListener(new ChangeListener() {
+            @Override
+            public void stateChanged(ChangeEvent e) {
+                contentPanel.getDirectoryField().setEnabled(
+                        !contentPanel.getInlineImageCheckbox().isSelected()
+                );
+            }
+        });
+        contentPanel.getInlineImageCheckbox().setSelected(inlineImageSaved);
+
         builder.setCenterPanel(contentPanel);
         builder.setDimensionServiceKey("GrepConsoleSound");
         builder.setTitle("Paste Image Settings");

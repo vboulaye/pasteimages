@@ -1,6 +1,8 @@
 package img2md;
 
 
+import com.intellij.util.Base64;
+
 import javax.imageio.ImageIO;
 import javax.swing.*;
 import java.awt.*;
@@ -10,8 +12,10 @@ import java.awt.datatransfer.UnsupportedFlavorException;
 import java.awt.geom.AffineTransform;
 import java.awt.geom.RoundRectangle2D;
 import java.awt.image.*;
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.net.MalformedURLException;
 import java.net.URL;
 
@@ -86,6 +90,16 @@ public class ImageUtils {
         }
     }
 
+    public static String convertToBase64(BufferedImage image, String format) {
+        try (
+                ByteArrayOutputStream os = new ByteArrayOutputStream();
+        ) {
+            ImageIO.write(image, "png", os);
+            return Base64.encode(os.toByteArray());
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
 
     /**
      * @return Could be <code>null</code> if the image could not be read from the file (because of whatever strange

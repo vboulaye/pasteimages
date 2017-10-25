@@ -24,6 +24,7 @@ new FormModel {
 				}, new FormLayoutConstraints( class com.jformdesigner.runtime.GridBagConstraintsEx ) )
 				add( new FormComponent( "javax.swing.JTextField" ) {
 					name: "nameInput"
+					"toolTipText": "leave empty to get a generated filename"
 					auxiliary() {
 						"JavaCodeGenerator.variableGetter": true
 					}
@@ -45,6 +46,16 @@ new FormModel {
 				}, new FormLayoutConstraints( class com.jformdesigner.runtime.GridBagConstraintsEx ) {
 					"gridx": 1
 					"gridy": 1
+					"gridwidth": 2
+				} )
+				add( new FormComponent( "javax.swing.JCheckBox" ) {
+					name: "inlineImageCheckbox"
+					"text": "inline image"
+					auxiliary() {
+						"JavaCodeGenerator.variableGetter": true
+					}
+					"toolTipText": "when selected, the image is not stored as a file but as an inline base64 text"
+				}, new FormLayoutConstraints( class com.jformdesigner.runtime.GridBagConstraintsEx ) {
 					"gridwidth": 2
 				} )
 			}, new FormLayoutConstraints( class com.jformdesigner.runtime.GridBagConstraintsEx ) {
