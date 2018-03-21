@@ -18,5 +18,10 @@ intellij {
     pluginName 'pasteimages'
 }
 
+task copyJarToDist(type: Copy) {
+    from jar // shortcut for createJar.outputs.files
+    into "./dist"
+}
+
 group 'com.github.holgerbrandl'
 version '1.1.2-vbo' // Plugin version
